@@ -32,8 +32,16 @@ logger = logging.getLogger(__name__)
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "note_analysis_prompt.md"
 _PROMPT_TEMPLATE: str | None = None
 
-_MODEL_NAME = "gemini-2.0-flash"
+_DEFAULT_MODELS = [
+    os.getenv("GEMINI_MODEL", "").strip(),
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-pro",
+]
+_CANDIDATE_MODELS = [m for m in _DEFAULT_MODELS if m]
 PROMPT_VERSION = os.getenv("PROMPT_VERSION", "1.0.0")
+_ACTIVE_MODEL = _CANDIDATE_MODELS[0] if _CANDIDATE_MODELS else "gemini-1.5-flash"
 
 # Maximum words before truncation (Gemini has token limits; we guard at word level)
 _MAX_WORDS = 5000
@@ -117,12 +125,12 @@ _RESPONSE_SCHEMA = genai_types.Schema(
 
 # ── Core Gemini call ───────────────────────────────────────────────────────────
 
-def _call_gemini(prompt: str, is_retry: bool = False) -> tuple[str, dict[str, Any] | None]:
+def _call_gemini(prompt: str, is_retry: bool = False) -> tuple[str, dict[str, Any] | None, str]:
     """Call Gemini with the structured schema.
 
-    Returns (raw_text_output, parsed_dict_or_None).
-    `parsed_dict_or_None` is None only if the JSON could not be decoded at all.
+    Returns (raw_text_output, parsed_dict_or_None, used_model_name).
     """
+    global _ACTIVE_MODEL
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
@@ -136,21 +144,36 @@ def _call_gemini(prompt: str, is_retry: bool = False) -> tuple[str, dict[str, An
         max_output_tokens=4096,
     )
 
-    response = client.models.generate_content(
-        model=_MODEL_NAME,
-        contents=prompt,
-        config=generation_config,
-    )
+    last_err: Exception | None = None
+    # Try the active model first, then fallback models if 404 occurs
+    models_to_try = [_ACTIVE_MODEL] + [m for m in _CANDIDATE_MODELS if m != _ACTIVE_MODEL]
 
-    raw_text = response.text or ""
+    for model_name in models_to_try:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=generation_config,
+            )
+            _ACTIVE_MODEL = model_name
+            raw_text = response.text or ""
+            try:
+                parsed = json.loads(raw_text)
+            except json.JSONDecodeError:
+                logger.warning("Gemini returned non-JSON output (model=%s, retry=%s)", model_name, is_retry)
+                parsed = None
+            return raw_text, parsed, model_name
+        except Exception as exc:
+            err_str = str(exc)
+            last_err = exc
+            if "404" in err_str or "NOT_FOUND" in err_str or "not available" in err_str:
+                logger.warning("Model %s returned 404/unavailable. Trying next model...", model_name)
+                continue
+            raise exc
 
-    try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError:
-        logger.warning("Gemini returned non-JSON output (attempt retry=%s)", is_retry)
-        parsed = None
-
-    return raw_text, parsed
+    if last_err:
+        raise last_err
+    raise RuntimeError("No Gemini model succeeded.")
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
@@ -184,8 +207,9 @@ async def run_analysis(
     summary = ""
     final_status: str = "success"
 
+    used_model = _ACTIVE_MODEL
     try:
-        raw_output, parsed = _call_gemini(primary_prompt)
+        raw_output, parsed, used_model = _call_gemini(primary_prompt)
 
         if parsed is None:
             raise ValueError("JSON decode failed on primary attempt")
@@ -219,7 +243,7 @@ async def run_analysis(
             "Return ONLY valid JSON matching the schema. No prose, no markdown fences."
         )
         try:
-            raw_output, parsed2 = _call_gemini(corrective_prompt, is_retry=True)
+            raw_output, parsed2, used_model = _call_gemini(corrective_prompt, is_retry=True)
             if parsed2 is None:
                 raise ValueError("JSON decode failed on retry")
 
@@ -258,7 +282,7 @@ async def run_analysis(
         "noteId": note_id,
         "userId": uid,
         "createdAt": now,
-        "modelVersion": _MODEL_NAME,
+        "modelVersion": used_model,
         "promptVersion": PROMPT_VERSION,
         "status": final_status,
         "conditions": [c.model_dump() for c in conditions],
@@ -273,7 +297,7 @@ async def run_analysis(
         noteId=note_id,
         userId=uid,
         createdAt=now,
-        modelVersion=_MODEL_NAME,
+        modelVersion=used_model,
         promptVersion=PROMPT_VERSION,
         status=final_status,  # type: ignore[arg-type]
         conditions=conditions,
