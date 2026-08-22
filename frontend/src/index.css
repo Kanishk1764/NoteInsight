@@ -175,3 +175,35 @@ tr:hover td { background: var(--color-bg); cursor: pointer; }
 .confidence-bar-track { flex: 1; height: 6px; background: var(--color-border); border-radius: 999px; overflow: hidden; }
 .confidence-bar-fill { height: 100%; border-radius: 999px; background: var(--color-primary); transition: width 0.3s; }
 .confidence-label { font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; min-width: 36px; text-align: right; }
+
+/* ── Tabs Navigation ─────────────────────────────────────────────────────────── */
+.tabs-nav {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 2px solid var(--color-border);
+  margin-bottom: 1.5rem;
+  overflow-x: auto;
+}
+.tab-btn {
+  padding: 0.625rem 1rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.tab-btn:hover {
+  color: var(--color-primary);
+}
+.tab-btn.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
