@@ -119,14 +119,74 @@ using this `firestore.indexes.json`:
 
 Four Firestore collections, kept deliberately separate.
 
+```mermaid
+erDiagram
+    users ||--o{ notes : "owns"
+    notes ||--o{ analyses : "analyzed into (1..N)"
+    analyses ||--o| reviews : "reviewed by human (1..1)"
+
+    users {
+        string uid PK "Firebase Auth UID"
+        timestamp createdAt "Account created"
+    }
+
+    notes {
+        string id PK "UUID"
+        string userId FK "Owner UID"
+        string pseudonym "Optional patient reference"
+        string visitDate "Optional YYYY-MM-DD"
+        string rawText "Original clinical note (immutable)"
+        timestamp createdAt "Submitted timestamp"
+        string latestAnalysisId "Pointer to latest analysis"
+        string reviewStatus "pending | reviewed"
+    }
+
+    analyses {
+        string id PK "UUID (Immutable Snapshot)"
+        string noteId FK "Parent Note ID"
+        string userId FK "Owner UID"
+        timestamp createdAt "Analysis timestamp"
+        string modelVersion "e.g. gemini-3.6-flash"
+        string promptVersion "e.g. 1.0.0"
+        string status "success | malformed | failed"
+        json conditions "Extracted diagnoses + quotes"
+        array documentationGaps "Actionable clinical gaps"
+        string summary "Encounter summary"
+        string rawModelOutput "Audit trail of raw LLM JSON"
+    }
+
+    reviews {
+        string id PK "UUID"
+        string analysisId FK "Target Analysis Snapshot"
+        string noteId FK "Parent Note ID"
+        string userId FK "Reviewer UID"
+        json reviewedConditions "Human corrections & additions"
+        timestamp reviewedAt "Review timestamp"
+    }
+```
+
+### Entity Breakdown & Field Authorship
+
+| Entity | Field | Written By | Mutability | Description |
+|---|---|---|---|---|
+| `users` | `uid`, `createdAt` | **System** | Immutable | Mirrors Firebase Auth identity |
+| `notes` | `rawText`, `pseudonym`, `visitDate` | **Human** (Clinician) | Immutable | Original clinician input; never altered |
+| `notes` | `createdAt` | **System** | Immutable | Note submission timestamp |
+| `notes` | `latestAnalysisId`, `reviewStatus` | **System** | Mutable | Pointers updated when new analysis runs or review is saved |
+| `analyses` | `modelVersion`, `promptVersion`, `rawModelOutput` | **Machine** (LLM Service) | **Immutable** | Complete audit snapshot of the AI run |
+| `analyses` | `conditions`, `documentationGaps`, `summary` | **Machine** (Gemini) | **Immutable** | Parsed & schema-validated clinical extractions |
+| `analyses` | `quoteVerified` | **System** | **Immutable** | Substring verification against `notes.rawText` |
+| `reviews` | `reviewedConditions` (edited/rejected/added) | **Human** (Clinician) | Mutable (Upsert) | Clinician's corrections without touching `analyses` |
+| `reviews` | `reviewedAt` | **System** | Mutable (Upsert) | Timestamp of human sign-off |
+
 ### `users/{uid}`
 
 Mirrors Firebase Auth. Stored only to log creation time; Firebase Auth is the authoritative identity store.
 
-```
+```json
 {
-  uid:       string    // Firebase Auth UID (document ID)
-  createdAt: timestamp
+  "uid": "aBcDeFg123...",
+  "createdAt": "2025-01-15T10:00:00Z"
 }
 ```
 
@@ -134,16 +194,16 @@ Mirrors Firebase Auth. Stored only to log creation time; Firebase Auth is the au
 
 The raw input submitted by the clinician. Never mutated after creation except for two pointer fields.
 
-```
+```json
 {
-  id:               string     // document ID
-  userId:           string     // owner — every query is scoped to this
-  pseudonym:        string?    // optional patient reference
-  visitDate:        string?    // ISO date, e.g. "2025-03-14"
-  rawText:          string     // the original free-text note, preserved forever
-  createdAt:        timestamp
-  latestAnalysisId: string?    // pointer to the most recent analysis
-  reviewStatus:     "pending" | "reviewed"
+  "id": "30e160d1-10f4-4dd5-abc4-d6e8f1104b25",
+  "userId": "aBcDeFg123...",
+  "pseudonym": "Demo-Patient-A",
+  "visitDate": "2025-03-14",
+  "rawText": "Patient is a 58-year-old male with hypertension...",
+  "createdAt": "2025-01-15T10:00:00Z",
+  "latestAnalysisId": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "reviewStatus": "reviewed"
 }
 ```
 
@@ -153,28 +213,28 @@ The raw input submitted by the clinician. Never mutated after creation except fo
 
 An **immutable snapshot** of one Gemini run on one note. Once written, this document is never updated.
 
-```
+```json
 {
-  id:                string
-  noteId:            string
-  userId:            string
-  createdAt:         timestamp
-  modelVersion:      string     // e.g. "gemini-2.0-flash"
-  promptVersion:     string     // e.g. "1.0.0" — from PROMPT_VERSION env var
-  status:            "success" | "malformed" | "failed"
-  conditions: [
+  "id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "noteId": "30e160d1-10f4-4dd5-abc4-d6e8f1104b25",
+  "userId": "aBcDeFg123...",
+  "createdAt": "2025-01-15T10:00:05Z",
+  "modelVersion": "gemini-3.6-flash",
+  "promptVersion": "1.0.0",
+  "status": "success",
+  "conditions": [
     {
-      name:                 string
-      evidenceQuote:        string   // verbatim excerpt from the note
-      quoteVerified:        boolean  // true iff quote found as substring of rawText
-      documentationStatus:  "documented" | "implied" | "absent"
-      suggestedIcd10:       string
-      confidence:           number   // 0.0–1.0
+      "name": "Essential hypertension",
+      "evidenceQuote": "Essential hypertension (I10) — well controlled",
+      "quoteVerified": true,
+      "documentationStatus": "documented",
+      "suggestedIcd10": "I10",
+      "confidence": 0.95
     }
-  ]
-  documentationGaps: string[]
-  summary:           string
-  rawModelOutput:    string    // the raw Gemini response, always stored for audit
+  ],
+  "documentationGaps": ["No recent lipid panel documented in clinic"],
+  "summary": "58-year-old male follow-up for hypertension, well controlled on amlodipine.",
+  "rawModelOutput": "{\"conditions\": [...], ...}"
 }
 ```
 
@@ -184,32 +244,36 @@ An **immutable snapshot** of one Gemini run on one note. Once written, this docu
 
 The human layer, linked to one specific analysis. Only one review per `(analysisId, userId)` pair — re-submitting a review is an idempotent upsert.
 
-```
+```json
 {
-  id:        string
-  analysisId: string   // points to a specific analysis snapshot
-  noteId:    string
-  userId:    string
-  reviewedConditions: [
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "analysisId": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "noteId": "30e160d1-10f4-4dd5-abc4-d6e8f1104b25",
+  "userId": "aBcDeFg123...",
+  "reviewedConditions": [
     {
-      // all fields from AnalysisCondition, plus:
-      edited:               boolean
-      rejected:             boolean
-      addedByHuman:         boolean
-      humanCorrectedFields: {     // only fields that changed
-        name?:                string
-        evidenceQuote?:        string
-        documentationStatus?:  string
-        suggestedIcd10?:       string
-        confidence?:           number
-      } | null
+      "name": "Essential hypertension",
+      "evidenceQuote": "Essential hypertension (I10) — well controlled",
+      "quoteVerified": true,
+      "documentationStatus": "documented",
+      "suggestedIcd10": "I10",
+      "confidence": 0.95,
+      "edited": false,
+      "rejected": false,
+      "addedByHuman": false,
+      "humanCorrectedFields": null
     }
-  ]
-  reviewedAt: timestamp
+  ],
+  "reviewedAt": "2025-01-15T10:02:30Z"
 }
 ```
 
-**Why immutable analyses?** This is the most important design constraint in the project. If you overwrote an analysis with the human's corrections, you'd lose the audit trail of what the model actually said. Keeping them separate allows for: (a) future prompt regression testing, (b) measuring model accuracy over time, (c) regulatory/audit compliance.
+### Future Architectural Scalability
+
+How this schema gracefully accommodates future requirements:
+1. **Multiple analyses per note:** Built-in from day one. When prompt versions are bumped (e.g. `PROMPT_VERSION=2.0.0`), running `/api/notes/{id}/analyze` stores a new snapshot without overwriting older analyses.
+2. **Multiple users per clinic (Multi-tenancy):** Can be achieved simply by adding `clinicId: string` to `notes` and `users`, with role-based permissions (`clinician`, `coder`, `admin`).
+3. **Second AI Provider (Claude / OpenAI / Local Med-PaLM):** The `modelVersion` field records which provider/model generated the snapshot. The `gemini_service.py` layer implements an adapter pattern that can easily be swapped or routed based on configuration.
 
 ---
 
@@ -354,3 +418,15 @@ With one more week of development:
 - `GEMINI_API_KEY` is stored only in the backend environment; it is never referenced in frontend code and is never bundled into the frontend build.
 - `.env` files are gitignored; only `.env.example` files (with placeholder values) are committed.
 - No real patient data is used anywhere in this repository. Sample notes contain entirely fictional patients.
+
+---
+
+## Time Spent on Assessment
+
+- **Planning & Data Modeling:** ~1.5 hours (designing the immutable analysis/review lifecycle, Firestore collection architecture, and Pydantic/TypeScript contract)
+- **Backend & Auth Implementation:** ~3 hours (FastAPI routes, Firebase Admin SDK integration, ID token verification, owner-scoping middleware)
+- **Gemini Integration & Robustness:** ~2.5 hours (prompt design in `prompts/`, `response_schema` enforcement, quote substring verification with normalization, retry ladder on malformed JSON, dynamic model fallback)
+- **Frontend UI & State Management:** ~3.5 hours (React + TypeScript without `any`, auth guards, note submission form with word counts, condition editor/rejector, history table with pagination)
+- **Documentation, Sample Notes & Deployment Configs:** ~1.5 hours (comprehensive README, 3 synthetic clinical notes, Dockerfile, Cloud Run & Firebase Hosting configuration)
+- **Total:** ~12 hours of focused design and engineering.
+
