@@ -34,14 +34,15 @@ _PROMPT_TEMPLATE: str | None = None
 
 _DEFAULT_MODELS = [
     os.getenv("GEMINI_MODEL", "").strip(),
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.7-flash",
     "gemini-2.5-flash",
     "gemini-1.5-flash",
-    "gemini-2.0-flash-exp",
-    "gemini-1.5-pro",
 ]
 _CANDIDATE_MODELS = [m for m in _DEFAULT_MODELS if m]
 PROMPT_VERSION = os.getenv("PROMPT_VERSION", "1.0.0")
-_ACTIVE_MODEL = _CANDIDATE_MODELS[0] if _CANDIDATE_MODELS else "gemini-1.5-flash"
+_ACTIVE_MODEL = _CANDIDATE_MODELS[0] if _CANDIDATE_MODELS else "gemini-3.6-flash"
 
 # Maximum words before truncation (Gemini has token limits; we guard at word level)
 _MAX_WORDS = 5000
@@ -145,8 +146,17 @@ def _call_gemini(prompt: str, is_retry: bool = False) -> tuple[str, dict[str, An
     )
 
     last_err: Exception | None = None
-    # Try the active model first, then fallback models if 404 occurs
+    # Build models to try: active model first, then candidate models
     models_to_try = [_ACTIVE_MODEL] + [m for m in _CANDIDATE_MODELS if m != _ACTIVE_MODEL]
+
+    # Dynamically query available models if needed
+    try:
+        remote_models = [m.name.replace("models/", "") for m in client.models.list() if "generateContent" in getattr(m, "supported_generation_methods", []) or "generate_content" in getattr(m, "supported_actions", []) or "flash" in m.name.lower()]
+        for rm in remote_models:
+            if rm not in models_to_try:
+                models_to_try.append(rm)
+    except Exception:
+        pass
 
     for model_name in models_to_try:
         try:
@@ -166,7 +176,7 @@ def _call_gemini(prompt: str, is_retry: bool = False) -> tuple[str, dict[str, An
         except Exception as exc:
             err_str = str(exc)
             last_err = exc
-            if "404" in err_str or "NOT_FOUND" in err_str or "not available" in err_str:
+            if "404" in err_str or "NOT_FOUND" in err_str or "not found" in err_str.lower() or "not available" in err_str:
                 logger.warning("Model %s returned 404/unavailable. Trying next model...", model_name)
                 continue
             raise exc
