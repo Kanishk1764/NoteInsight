@@ -19,8 +19,9 @@ from routers import analyses, notes
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: initialise Firebase on startup."""
-    import db  # noqa: F401 – triggers singleton init
+    import db
 
+    db.get_db()  # guarantees Firebase Admin SDK is initialized on startup
     yield
 
 

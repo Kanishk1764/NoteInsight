@@ -12,6 +12,9 @@ from fastapi import Depends, Header, HTTPException, status
 from firebase_admin import auth as firebase_auth
 
 
+from db import get_db
+
+
 def _get_bearer_token(authorization: str = Header(...)) -> str:
     """Extract the raw JWT from the `Authorization: Bearer <token>` header."""
     scheme, _, token = authorization.partition(" ")
@@ -29,6 +32,7 @@ def get_current_uid(token: str = Depends(_get_bearer_token)) -> str:
     Raises 401 if the token is invalid or expired.
     The returned uid is the authoritative identity for all downstream checks.
     """
+    get_db()  # ensures Firebase app is initialized
     try:
         decoded = firebase_auth.verify_id_token(token, check_revoked=True)
     except firebase_admin.exceptions.FirebaseError as exc:
