@@ -9,27 +9,28 @@ import type {
   SubmitReviewRequest,
 } from '../types/api'
 
-function getBaseUrl(): string {
-  const envUrl = import.meta.env.VITE_API_BASE_URL
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
-    return envUrl.trim().replace(/\/+$/, '')
+export function getBaseUrl(): string {
+  // 1. Dynamic check in browser runtime
+  if (typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname
+    if (host && (host.includes('onrender.com') || host.includes('render.com'))) {
+      return 'https://note-insight-backend.onrender.com'
+    }
   }
-  // Smart fallback when deployed on Render if build env var was missed
-  if (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com')) {
-    return 'https://note-insight-backend.onrender.com'
+  // 2. Build-time environment variable
+  const envUrl = import.meta.env.VITE_API_BASE_URL
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '' && !envUrl.includes('localhost')) {
+    return envUrl.trim().replace(/\/+$/, '')
   }
   return 'http://localhost:8000'
 }
 
-const BASE_URL = getBaseUrl()
+const apiClient = axios.create()
 
-const apiClient = axios.create({
-  baseURL: BASE_URL,
-})
-
-// ── Auth interceptor ───────────────────────────────────────────────────────────
-// Attach the Firebase ID token to every outgoing request.
+// ── Auth & URL interceptor ───────────────────────────────────────────────────
+// Attach the dynamic baseURL and the Firebase ID token to every outgoing request.
 apiClient.interceptors.request.use(async (config) => {
+  config.baseURL = getBaseUrl()
   const user = auth.currentUser
   if (user) {
     const token = await user.getIdToken()
@@ -40,9 +41,10 @@ apiClient.interceptors.request.use(async (config) => {
 
 // ── Error normaliser ───────────────────────────────────────────────────────────
 export function extractErrorMessage(err: unknown): string {
+  const currentBaseUrl = getBaseUrl()
   if (err instanceof AxiosError) {
     if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-      return `Network Error: Unable to connect to backend at ${BASE_URL}. Please check CORS and backend status.`
+      return `Network Error: Unable to reach backend API at ${currentBaseUrl}.`
     }
     const detail = err.response?.data?.detail
     if (typeof detail === 'string') return detail
