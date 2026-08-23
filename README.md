@@ -2,6 +2,19 @@
 
 > **AI-assisted clinical note structuring.** Paste a free-text clinical note → get structured conditions, ICD-10 codes, evidence quotes, and documentation gaps — then review and correct the AI's output.
 
+🔗 **Live Demo:** [https://note-insight-frontend.onrender.com](https://note-insight-frontend.onrender.com)  
+📦 **Backend API:** [https://note-insight-backend.onrender.com/healthz](https://note-insight-backend.onrender.com/healthz)
+
+---
+
+## Quick Pointers
+
+| What | Where |
+|---|---|
+| **Data model, design decisions, known gaps, time spent** | You're reading it — sections below cover all of these. |
+| **Gemini prompt(s)** | [`backend/prompts/note_analysis_prompt.md`](backend/prompts/note_analysis_prompt.md) — versioned, with clinical safety guardrails. |
+| **Sample synthetic notes** | [`sample-notes/`](sample-notes/) — 3 fictional clinical notes ready to paste and test immediately. |
+
 ---
 
 ## Table of Contents
