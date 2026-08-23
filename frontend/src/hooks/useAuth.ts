@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   type User,
@@ -12,6 +14,8 @@ export interface AuthState {
   user: User | null
   loading: boolean
 }
+
+const googleProvider = new GoogleAuthProvider()
 
 export function useAuth(): AuthState {
   const [user, setUser] = useState<User | null>(null)
@@ -34,6 +38,10 @@ export async function signUp(email: string, password: string): Promise<void> {
 
 export async function signIn(email: string, password: string): Promise<void> {
   await signInWithEmailAndPassword(auth, email, password)
+}
+
+export async function signInWithGoogle(): Promise<void> {
+  await signInWithPopup(auth, googleProvider)
 }
 
 export async function signOut(): Promise<void> {
