@@ -31,25 +31,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_raw_origins = os.getenv("CORS_ORIGINS", "*")
-if _raw_origins.strip() == "*":
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_origin_regex=r"https://.*\.onrender\.com|https://.*\.web\.app|https://.*\.firebaseapp\.com|http://localhost:\d+",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 
 app.include_router(notes.router, prefix="/api")
 app.include_router(analyses.router, prefix="/api")
