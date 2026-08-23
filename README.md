@@ -2,8 +2,6 @@
 
 > **AI-assisted clinical note structuring.** Paste a free-text clinical note → get structured conditions, ICD-10 codes, evidence quotes, and documentation gaps — then review and correct the AI's output.
 
-> **Scaffold note:** This project was generated as an AI-assisted scaffold using [Antigravity](https://antigravity.dev) and is intended as a starting point for review and iteration. All design decisions are documented below.
-
 ---
 
 ## Table of Contents
@@ -13,10 +11,11 @@
 3. [Design Decisions](#design-decisions)
 4. [Database Choice Justification](#database-choice-justification)
 5. [API Reference](#api-reference)
-6. [Deployment](#deployment)
+6. [Deployment (Render & Cloud Run)](#deployment)
 7. [What We'd Build Next](#what-wed-build-next)
 8. [Known Gaps](#known-gaps)
 9. [Security Posture](#security-posture)
+10. [Time Spent on Assessment](#time-spent-on-assessment)
 
 ---
 
@@ -24,16 +23,16 @@
 
 ### Prerequisites
 
-- Python 3.12+
-- Node.js 20+
+- Python 3.10+
+- Node.js 18+
 - A Firebase project with **Firestore** and **Email/Password Authentication** enabled
 - A Google Gemini API key from [AI Studio](https://aistudio.google.com/app/apikey)
 
 ### 1. Clone & enter the repo
 
 ```bash
-git clone <your-repo-url>
-cd "Note Insight"
+git clone https://github.com/Kanishk1764/NoteInsight.git
+cd NoteInsight
 ```
 
 ### 2. Backend setup
@@ -341,13 +340,62 @@ All routes require `Authorization: Bearer <Firebase ID token>`.
 ---
 
 ## Deployment
+ 
+### 🚀 Option 1: Render (Recommended for Fast Free-Tier Deployment)
 
-### Backend → Google Cloud Run
+#### 1. Backend Web Service on Render
+1. Go to your [Render Dashboard](https://dashboard.render.com/) and click **New +** → **Web Service**.
+2. Connect your GitHub repository: `Kanishk1764/NoteInsight`.
+3. Configure the service settings:
+   - **Name:** `note-insight-backend`
+   - **Region:** Any close to you (e.g. `Oregon (US West)` or `Singapore`)
+   - **Root Directory:** `backend`
+   - **Runtime:** `Python 3`
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Instance Type:** `Free`
+4. Under the **Secret Files** section (Advanced settings):
+   - Click **Add Secret File**
+   - **Filename:** `service-account.json`
+   - **Contents:** Paste the exact JSON content of your downloaded Firebase service account key.
+5. Under the **Environment Variables** section, add:
+   - `GEMINI_API_KEY`: Your Gemini API key from AI Studio
+   - `GOOGLE_APPLICATION_CREDENTIALS`: `/etc/secrets/service-account.json` (or `./service-account.json`)
+   - `FIREBASE_PROJECT_ID`: Your Firebase Project ID
+   - `CORS_ORIGINS`: `*` (or your frontend Render/Vercel domain once created)
+   - `PROMPT_VERSION`: `1.0.0`
+6. Click **Create Web Service**. Once deployed, copy your backend URL (e.g. `https://note-insight-backend.onrender.com`).
+
+#### 2. Frontend Static Site on Render
+1. In the Render Dashboard, click **New +** → **Static Site**.
+2. Connect `Kanishk1764/NoteInsight`.
+3. Configure settings:
+   - **Name:** `note-insight-frontend`
+   - **Root Directory:** `frontend`
+   - **Build Command:** `npm run build`
+   - **Publish Directory:** `dist`
+4. Under **Redirects/Rewrites**:
+   - Add a rule: Source `/*` ➔ Destination `/index.html` ➔ Action **Rewrite** (ensures SPA client-side routing works).
+5. Under **Environment Variables**, add:
+   - `VITE_FIREBASE_API_KEY`: `AIzaSy...`
+   - `VITE_FIREBASE_AUTH_DOMAIN`: `your-project-id.firebaseapp.com`
+   - `VITE_FIREBASE_PROJECT_ID`: `your-project-id`
+   - `VITE_FIREBASE_STORAGE_BUCKET`: `your-project-id.firebasestorage.app`
+   - `VITE_FIREBASE_MESSAGING_SENDER_ID`: `123456789...`
+   - `VITE_FIREBASE_APP_ID`: `1:...:web:...`
+   - `VITE_API_BASE_URL`: `https://note-insight-backend.onrender.com` (your deployed backend URL)
+6. Click **Create Static Site**.
+
+---
+
+### 🌐 Option 2: Google Cloud Run & Firebase Hosting
+
+#### Backend → Google Cloud Run
 
 ```bash
 cd backend
 
-# Build and push the Docker image
+# Build and push container image
 gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/note-insight-backend
 
 # Deploy to Cloud Run
@@ -359,30 +407,21 @@ gcloud run deploy note-insight-backend \
   --set-env-vars "GEMINI_API_KEY=...,FIREBASE_PROJECT_ID=...,CORS_ORIGINS=https://your-frontend.web.app"
 ```
 
-For `GOOGLE_APPLICATION_CREDENTIALS`, mount the service account JSON as a Cloud Run secret or use Workload Identity (recommended for production).
-
-**Fallback: Render**
-- Create a new Web Service pointing to the `backend/` directory
-- Set the build command: `pip install -r requirements.txt`
-- Set the start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-- Add all environment variables in the Render dashboard
-- Set `GOOGLE_APPLICATION_CREDENTIALS` to the path of your service account file (upload it as a secret file)
-
-### Frontend → Firebase Hosting
+#### Frontend → Firebase Hosting
 
 ```bash
 cd frontend
 npm run build
 
-# From the repo root:
+# Deploy from repository root
 firebase deploy --only hosting
 ```
 
-**Fallback: Vercel**
+#### Frontend → Vercel (Alternative)
 ```bash
 vercel --prod
 ```
-The `vercel.json` at the repo root configures the build and SPA rewrites.
+The repository includes `vercel.json` configured for SPA routing.
 
 ---
 
