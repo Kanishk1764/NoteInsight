@@ -57,6 +57,24 @@ export function extractErrorMessage(err: unknown): string {
   return 'An unexpected error occurred.'
 }
 
+// ── Backend wake-up ────────────────────────────────────────────────────────────
+// Render free-tier services spin down after ~15 min of inactivity.
+// Pinging /healthz on app load gives the service time to wake before the user
+// makes a real request, avoiding the "Unable to reach backend" error.
+export function pingBackend(): void {
+  fetch(`${getBaseUrl()}/healthz`).catch(() => {
+    // Intentionally silent – this is just a warm-up ping.
+  })
+}
+
+/** Returns true when the error is a raw network failure (backend unreachable / sleeping). */
+export function isNetworkError(err: unknown): boolean {
+  return (
+    err instanceof AxiosError &&
+    (err.code === 'ERR_NETWORK' || err.message === 'Network Error')
+  )
+}
+
 // ── API methods ────────────────────────────────────────────────────────────────
 
 export async function createNote(body: CreateNoteRequest): Promise<CreateNoteResponse> {

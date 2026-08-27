@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useRef, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createNote, extractErrorMessage } from '../api/client'
+import { createNote, extractErrorMessage, isNetworkError } from '../api/client'
 import ErrorAlert from '../components/ErrorAlert'
 
 const MAX_WORDS = 5000
@@ -16,9 +16,31 @@ export default function NewNotePage() {
   const [visitDate, setVisitDate] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isNetErr, setIsNetErr] = useState(false)
+  // Stores the last submitted payload so the Retry button can re-send it.
+  const lastSubmitRef = useRef<{ rawText: string; pseudonym: string; visitDate: string } | null>(null)
 
   const wordCount = countWords(rawText)
   const isOverLimit = wordCount > MAX_WORDS
+
+  const submit = async (payload: { rawText: string; pseudonym: string; visitDate: string }) => {
+    setLoading(true)
+    setError(null)
+    setIsNetErr(false)
+    try {
+      const result = await createNote({
+        rawText: payload.rawText,
+        pseudonym: payload.pseudonym || undefined,
+        visitDate: payload.visitDate || undefined,
+      })
+      navigate(`/notes/${result.note.id}`)
+    } catch (err) {
+      setIsNetErr(isNetworkError(err))
+      setError(extractErrorMessage(err))
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -26,20 +48,14 @@ export default function NewNotePage() {
       setError('Please paste a clinical note before submitting.')
       return
     }
+    const payload = { rawText, pseudonym, visitDate }
+    lastSubmitRef.current = payload
+    await submit(payload)
+  }
 
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await createNote({
-        rawText,
-        pseudonym: pseudonym || undefined,
-        visitDate: visitDate || undefined,
-      })
-      navigate(`/notes/${result.note.id}`)
-    } catch (err) {
-      setError(extractErrorMessage(err))
-    } finally {
-      setLoading(false)
+  const handleRetry = () => {
+    if (lastSubmitRef.current) {
+      void submit(lastSubmitRef.current)
     }
   }
 
@@ -49,7 +65,14 @@ export default function NewNotePage() {
         <h1 className="page-title">New Clinical Note</h1>
       </div>
 
-      {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
+      {error && (
+        <ErrorAlert
+          message={error}
+          hint={isNetErr ? 'The server may be waking up (free-tier cold start). Please wait a moment and try again.' : undefined}
+          onDismiss={() => { setError(null); setIsNetErr(false) }}
+          onRetry={isNetErr ? handleRetry : undefined}
+        />
+      )}
 
       {loading && (
         <div className="alert alert-info">

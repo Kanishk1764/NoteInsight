@@ -26,8 +26,6 @@ frontend/.vite/
 *.local
 
 # ── Environment / Secrets ────────────────────────────────────────────
-.env
-.env.*
 !.env.example
 backend/.env
 backend/.env.*
@@ -50,6 +48,6 @@ desktop.ini
 
 # ── IDE ──────────────────────────────────────────────────────────────
 .idea/
-.vscode/
 *.swp
 *.swo
+config.bat

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { listNotes, extractErrorMessage } from '../api/client'
+import { listNotes, extractErrorMessage, isNetworkError } from '../api/client'
 import type { NoteListItem } from '../types/api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -10,6 +10,7 @@ export default function HistoryPage() {
   const [items, setItems] = useState<NoteListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isNetErr, setIsNetErr] = useState(false)
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
   const [total, setTotal] = useState(0)
@@ -19,6 +20,7 @@ export default function HistoryPage() {
   const fetchPage = async (p: number) => {
     setLoading(true)
     setError(null)
+    setIsNetErr(false)
     try {
       const res = await listNotes(p, PAGE_SIZE)
       setItems(res.items)
@@ -26,6 +28,7 @@ export default function HistoryPage() {
       setTotal(res.total)
       setPage(p)
     } catch (err) {
+      setIsNetErr(isNetworkError(err))
       setError(extractErrorMessage(err))
     } finally {
       setLoading(false)
@@ -47,7 +50,14 @@ export default function HistoryPage() {
         </button>
       </div>
 
-      {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
+      {error && (
+        <ErrorAlert
+          message={error}
+          hint={isNetErr ? 'The server may be waking up (free-tier cold start). Please wait a moment and try again.' : undefined}
+          onDismiss={() => { setError(null); setIsNetErr(false) }}
+          onRetry={isNetErr ? () => void fetchPage(page) : undefined}
+        />
+      )}
 
       {total === 0 && !loading && (
         <div className="card" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
